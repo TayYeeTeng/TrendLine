@@ -11,6 +11,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 from nltk.corpus import wordnet as wn
 from transformers import AutoTokenizer, AutoModel
 
+import nltk
+nltk.download('wordnet')
+
 # Load data
 def load_data(file_path, text_column="Text"):
   data = pd.read_excel(file_path)
@@ -22,299 +25,10 @@ def load_data(file_path, text_column="Text"):
 # Load spaCy model
 nlp = spacy.load("en_core_web_sm")
 
-### RIKA START ###
-# Function to classify sentiment as 'positive', 'neutral', or 'negative'
-def classify_sentiment(text):
-    polarity = TextBlob(text).sentiment.polarity
-    if polarity > 0:
-        return "Positive"
-    elif polarity < 0:
-        return "Negative"
-    else:
-        return "Neutral"
-
-# Function to extract companies and their sentiment
-def extract_companies_with_sentiment(text_column, nlp_model, exclude_list=None):
-    print(f"nlp_model type: {type(nlp_model)}")
-    exclude_list = set(exclude_list or [])  # Ensure exclude_list is a set for faster lookup
-    org_sentiment = []
-
-    for text in text_column:
-        doc = nlp_model(text)
-        sentiment = classify_sentiment(text)
-
-        # Extract unique organizations in the row
-        unique_orgs = {
-            ent.text.strip()
-            for ent in doc.ents
-            if ent.label_ == "ORG" and ent.text.strip() not in exclude_list
-        }
-
-        # Append each unique organization with its sentiment
-        org_sentiment.extend([(org, sentiment) for org in unique_orgs])
-
-    return org_sentiment
-
-# Function to plot the 100% stacked bar chart
-def plot_top_10_orgs_with_sentiment(org_sentiment):
-    # Convert to DataFrame
-    df = pd.DataFrame(org_sentiment, columns=["Organization", "Sentiment"])
-
-    # Count occurrences by organization and sentiment
-    org_counts = df.groupby(["Organization", "Sentiment"]).size().reset_index(name="Count")
-
-    # Find the top 10 most common organizations
-    top_10_orgs = df["Organization"].value_counts().head(10).index
-    org_counts = org_counts[org_counts["Organization"].isin(top_10_orgs)]
-
-    # Calculate the total counts per organization
-    org_counts["Total"] = org_counts.groupby("Organization")["Count"].transform("sum")
-
-    # Calculate percentages for 100% stacked bar chart
-    org_counts["Percentage"] = (org_counts["Count"] / org_counts["Total"]) * 100 
-
-    # Sort organizations alphabetically
-    org_counts = org_counts.sort_values(by="Organization").drop(columns=["Total"])
-
-    # Plot interactive bar chart using Plotly
-    fig = px.bar(
-        org_counts,
-        x="Organization",
-        y="Percentage",
-        color="Sentiment",
-        color_discrete_map={"Positive": "lightgreen", "Neutral": "skyblue", "Negative": "salmon"},
-        hover_data={"Organization": True, "Sentiment": True, "Percentage": True},
-        title="Sentiment of Top 10 Organizations",
-        labels={"Organization": "Organization", "Percentage": "Percentage of Sentiment"},
-    )
-
-    # Show the interactive chart with corrected hover formatting
-    fig.update_traces(
-        marker=dict(line=dict(width=1, color="black")),
-        hovertemplate="Organization: %{x}<br>Sentiment: %{customdata[0]}<br>Percentage: %{y:.0f}%",
-    )
-    fig.update_layout(
-        xaxis_title="Organization",
-        yaxis_title="Percentage",
-        showlegend=True,
-    )
-
-    # Return the figure to be used in Streamlit
-    return fig
 
 
-# Function to get polarity score using TextBlob
-def get_polarity(text):
-    # Classifying polarity: TextBlob returns polarity between -1 and 1
-    return TextBlob(text).sentiment.polarity
-
-# Function to extract countries from the text using spaCy's NER
-def extract_countries(text):
-    doc = nlp(text)
-    countries = set()
-    for ent in doc.ents:
-        if ent.label_ == "GPE":  # GPE stands for Geo-Political Entity (countries, cities, etc.)
-            countries.add(ent.text)
-    return countries
-
-# Function to map countries to continents
-def map_countries_to_continents(data, continent_dict):
-    # Add a column for continent category
-    data['Continent'] = data['Countries'].map(continent_dict)
-    # Remove rows where the continent is NaN (i.e., countries not in the dictionary)
-    return data.dropna(subset=['Continent'])
-
-# Function to calculate mean polarity score per continent
-def calculate_mean_polarity_by_continent(data):
-    # Group by continent and calculate the mean polarity score
-    return data.groupby('Continent')['Polarity'].mean().reset_index()
-
-# Function to plot the bar chart (sorted by score)
-def plot_polarity_by_continent(continent_polarity):
-    # Sort by polarity score in descending order
-    continent_polarity = continent_polarity.sort_values(by="Polarity", ascending=False)
-    
-    # Plot
-    fig = px.bar(
-        continent_polarity,
-        x="Continent",
-        y="Polarity",
-        color="Continent",
-        title="Mean Polarity Score by Continent",
-        labels={"Polarity": "Mean Polarity Score", "Continent": "Continent"},
-        color_discrete_sequence=px.colors.qualitative.Set2,
-        text_auto=".4f"
-    )
-    # fig.show()
-    return fig
-
-### RIKA END ###
-
-### PRITIKA START ###
-def extract_country(text):
-    """
-    Extracts the country mentioned in the text using SpaCy's named entity recognition (NER).
-    """
-    doc = nlp(text)
-    countries = []
-    for ent in doc.ents:
-        if ent.label_ == "GPE":  # GPE stands for Geopolitical Entity (countries, cities, etc.)
-            country = ent.text
-            # Normalize "the United States", "United States", "US", and "U.S." as "United States"
-            if country.lower() in ["united states", "the united states", "us", "u.s."]:
-                country = "United States"
-            countries.append(country)
-    return countries
-
-def get_sentiment(text):
-    analysis = TextBlob(text)
-    return "Positive" if analysis.sentiment.polarity > 0 else "Neutral" if analysis.sentiment.polarity == 0 else "Negative"
-
-def extract_crime_month(text):
-    """
-    Extracts the month of the crime from the text using regular expressions.
-    Handles both full month names and short forms.
-    """
-    month_pattern = r"(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)"
-    match = re.search(month_pattern, text, re.IGNORECASE)
-
-    if match:
-        month_str = match.group(1).capitalize()
-        month_mapping = {
-            "Jan": "January", "Feb": "February", "Mar": "March", "Apr": "April",
-            "May": "May", "Jun": "June", "Jul": "July", "Aug": "August",
-            "Sep": "September", "Oct": "October", "Nov": "November", "Dec": "December"
-        }
-        return month_mapping.get(month_str, month_str)
-    return None  # Return None if no month is found
-
-def process_excel_file_1(file_path):
-    """
-    Processes the Excel file to extract country occurrences and sentiment.
-    Creates a stacked bar graph showing the sentiment distribution for the top 10 countries, ordered in descending order.
-    """
-    try:
-        # Read the Excel file into a DataFrame
-        df = pd.read_excel(file_path)
-
-        # Ensure the 'Text' column exists
-        if "Text" not in df.columns:
-            raise ValueError("The Excel file must contain a 'Text' column.")
-
-        # Extract country and sentiment data
-        country_data = []
-        for text in df["Text"].dropna():
-            countries = extract_country(text)
-            sentiment = get_sentiment(text)
-            for country in countries:
-                country_data.append([country, sentiment])
-
-        if not country_data:
-            print("No valid data found.")
-            return
-
-        # Create DataFrame for analysis
-        country_df = pd.DataFrame(country_data, columns=["Country", "Sentiment"])
-
-        # Count occurrences of each country
-        country_counts = country_df["Country"].value_counts()
-
-        # Select top 10 countries
-        top_10_countries = country_counts.head(10).index
-        top_10_df = country_df[country_df["Country"].isin(top_10_countries)]
-
-        # Pivot table for stacked bar chart
-        sentiment_counts = top_10_df.pivot_table(index="Country", columns="Sentiment", aggfunc="size", fill_value=0)
-
-        # Order by total occurrences in descending order
-        sentiment_counts = sentiment_counts.loc[sentiment_counts.sum(axis=1).sort_values(ascending=False).index]
-
-        # Create a plotly stacked bar chart
-        fig = px.bar(sentiment_counts, 
-                     x=sentiment_counts.index, 
-                     y=sentiment_counts.columns, 
-                     title="Sentiment Distribution in Top 10 Countries",
-                     labels={"value": "Occurrences", "Sentiment": "Sentiment", "Country": "Country"},
-                     color_discrete_map={
-                         'negative': 'lightcoral',
-                         'neutral': 'lightblue',
-                         'positive': 'lightgreen'
-                     })
-
-        # Show the figure
-        fig.update_layout(barmode='stack')
-        # fig.show()
-        return fig
-
-    except FileNotFoundError:
-        print(f"Error: The file '{file_path}' was not found.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
-
-
-def process_excel_file_2(file_path):
-    """
-    Processes the Excel file to extract crime occurrences by month and sentiment.
-    Creates a stacked bar graph showing sentiment distribution per month.
-    """
-    try:
-        df = pd.read_excel(file_path)
-
-        if "Text" not in df.columns:
-            raise ValueError("The Excel file must contain a 'Text' column.")
-
-        # Extract month and sentiment
-        month_sentiment_data = []
-        for text in df["Text"].dropna():
-            month = extract_crime_month(text)
-            if month:  # Exclude "No Month"
-                sentiment = get_sentiment(text)
-                month_sentiment_data.append([month, sentiment])
-
-        if not month_sentiment_data:
-            print("No valid data found.")
-            return
-
-        # Create DataFrame for analysis
-        month_sentiment_df = pd.DataFrame(month_sentiment_data, columns=["Month", "Sentiment"])
-
-        # Ensure months appear in chronological order
-        month_order = ["January", "February", "March", "April", "May", "June",
-                       "July", "August", "September", "October", "November", "December"]
-        month_sentiment_df["Month"] = pd.Categorical(month_sentiment_df["Month"], categories=month_order, ordered=True)
-
-        # Count occurrences of each sentiment per month
-        sentiment_counts = month_sentiment_df.groupby(["Month", "Sentiment"]).size().unstack(fill_value=0)
-
-        # Create a Plotly stacked bar chart
-        fig = px.bar(sentiment_counts, 
-                     x=sentiment_counts.index, 
-                     y=sentiment_counts.columns, 
-                     title="Sentiment Distribution of News Articles by Month",
-                     labels={"value": "Number of Articles", "Sentiment": "Sentiment", "Month": "Month"},
-                     color_discrete_map={
-                         'negative': 'lightcoral',
-                         'neutral': 'lightblue',
-                         'positive': 'lightgreen'
-                     })
-
-        # Update layout for better presentation
-        fig.update_layout(barmode='stack',
-                          xaxis_title="Month",
-                          yaxis_title="Number of Articles",
-                          xaxis_tickangle=45)
-
-        return fig
-
-    except FileNotFoundError:
-        print(f"Error: The file '{file_path}' was not found.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
-
-### PRITIKA END ###
 
 ### HUAN YAO START ###
-
 def resolve_pronouns(doc):
   try:
       resolved_text = doc._.coref_resolved if hasattr(doc._, 'coref_resolved') else doc.text
@@ -504,6 +218,306 @@ def main1(file_path, text_column="Text", max_rows=None):
 ### HUAN YAO END ###
 
 
+
+
+### RIKA START ###
+# Function to classify sentiment as 'positive', 'neutral', or 'negative'
+def classify_sentiment(text):
+    polarity = TextBlob(text).sentiment.polarity
+    if polarity > 0:
+        return "Positive"
+    elif polarity < 0:
+        return "Negative"
+    else:
+        return "Neutral"
+
+# Function to extract companies and their sentiment
+def extract_companies_with_sentiment(text_column, nlp_model, exclude_list=None):
+    print(f"nlp_model type: {type(nlp_model)}")
+    exclude_list = set(exclude_list or [])  # Ensure exclude_list is a set for faster lookup
+    org_sentiment = []
+
+    for text in text_column:
+        doc = nlp_model(text)
+        sentiment = classify_sentiment(text)
+
+        # Extract unique organizations in the row
+        unique_orgs = {
+            ent.text.strip()
+            for ent in doc.ents
+            if ent.label_ == "ORG" and ent.text.strip() not in exclude_list
+        }
+
+        # Append each unique organization with its sentiment
+        org_sentiment.extend([(org, sentiment) for org in unique_orgs])
+
+    return org_sentiment
+
+# Function to plot the 100% stacked bar chart
+def plot_top_10_orgs_with_sentiment(org_sentiment):
+    # Convert to DataFrame
+    df = pd.DataFrame(org_sentiment, columns=["Organization", "Sentiment"])
+
+    # Count occurrences by organization and sentiment
+    org_counts = df.groupby(["Organization", "Sentiment"]).size().reset_index(name="Count")
+
+    # Find the top 10 most common organizations
+    top_10_orgs = df["Organization"].value_counts().head(10).index
+    org_counts = org_counts[org_counts["Organization"].isin(top_10_orgs)]
+
+    # Calculate the total counts per organization
+    org_counts["Total"] = org_counts.groupby("Organization")["Count"].transform("sum")
+
+    # Calculate percentages for 100% stacked bar chart
+    org_counts["Percentage"] = (org_counts["Count"] / org_counts["Total"]) * 100 
+
+    # Sort organizations alphabetically
+    org_counts = org_counts.sort_values(by="Organization").drop(columns=["Total"])
+
+    # Plot interactive bar chart using Plotly
+    fig = px.bar(
+        org_counts,
+        x="Organization",
+        y="Percentage",
+        color="Sentiment",
+        color_discrete_map={"Positive": "lightgreen", "Neutral": "skyblue", "Negative": "salmon"},
+        hover_data={"Organization": True, "Sentiment": True, "Percentage": True},
+        title="Sentiment of Top 10 Organizations",
+        labels={"Organization": "Organization", "Percentage": "Percentage of Sentiment"},
+    )
+
+    # Show the interactive chart with corrected hover formatting
+    fig.update_traces(
+        marker=dict(line=dict(width=1, color="black")),
+        hovertemplate="Organization: %{x}<br>Sentiment: %{customdata[0]}<br>Percentage: %{y:.0f}%",
+    )
+    fig.update_layout(
+        xaxis_title="Organization",
+        yaxis_title="Percentage",
+        showlegend=True,
+    )
+
+    # Return the figure to be used in Streamlit
+    return fig
+
+
+# Function to get polarity score using TextBlob
+def get_polarity(text):
+    # Classifying polarity: TextBlob returns polarity between -1 and 1
+    return TextBlob(text).sentiment.polarity
+
+# Function to extract countries from the text using spaCy's NER
+def extract_countries(text):
+    doc = nlp(text)
+    countries = set()
+    for ent in doc.ents:
+        if ent.label_ == "GPE":  # GPE stands for Geo-Political Entity (countries, cities, etc.)
+            countries.add(ent.text)
+    return countries
+
+# Function to map countries to continents
+def map_countries_to_continents(data, continent_dict):
+    # Add a column for continent category
+    data['Continent'] = data['Countries'].map(continent_dict)
+    # Remove rows where the continent is NaN (i.e., countries not in the dictionary)
+    return data.dropna(subset=['Continent'])
+
+# Function to calculate mean polarity score per continent
+def calculate_mean_polarity_by_continent(data):
+    # Group by continent and calculate the mean polarity score
+    return data.groupby('Continent')['Polarity'].mean().reset_index()
+
+# Function to plot the bar chart (sorted by score)
+def plot_polarity_by_continent(continent_polarity):
+    # Sort by polarity score in descending order
+    continent_polarity = continent_polarity.sort_values(by="Polarity", ascending=False)
+    
+    # Plot
+    fig = px.bar(
+        continent_polarity,
+        x="Continent",
+        y="Polarity",
+        color="Continent",
+        title="Mean Polarity Score by Continent",
+        labels={"Polarity": "Mean Polarity Score", "Continent": "Continent"},
+        color_discrete_sequence=px.colors.qualitative.Set2,
+        text_auto=".4f"
+    )
+    # fig.show()
+    return fig
+
+### RIKA END ###
+
+
+
+
+### PRITIKA START ###
+def extract_country(text):
+    """
+    Extracts the country mentioned in the text using SpaCy's named entity recognition (NER).
+    """
+    doc = nlp(text)
+    countries = []
+    for ent in doc.ents:
+        if ent.label_ == "GPE":  # GPE stands for Geopolitical Entity (countries, cities, etc.)
+            country = ent.text
+            # Normalize "the United States", "United States", "US", and "U.S." as "United States"
+            if country.lower() in ["united states", "the united states", "us", "u.s."]:
+                country = "United States"
+            countries.append(country)
+    return countries
+
+def get_sentiment(text):
+    analysis = TextBlob(text)
+    return "Positive" if analysis.sentiment.polarity > 0 else "Neutral" if analysis.sentiment.polarity == 0 else "Negative"
+
+def extract_crime_month(text):
+    """
+    Extracts the month of the crime from the text using regular expressions.
+    Handles both full month names and short forms.
+    """
+    month_pattern = r"(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)"
+    match = re.search(month_pattern, text, re.IGNORECASE)
+
+    if match:
+        month_str = match.group(1).capitalize()
+        month_mapping = {
+            "Jan": "January", "Feb": "February", "Mar": "March", "Apr": "April",
+            "May": "May", "Jun": "June", "Jul": "July", "Aug": "August",
+            "Sep": "September", "Oct": "October", "Nov": "November", "Dec": "December"
+        }
+        return month_mapping.get(month_str, month_str)
+    return None  # Return None if no month is found
+
+def process_excel_file_1(file_path):
+    """
+    Processes the Excel file to extract country occurrences and sentiment.
+    Creates a stacked bar graph showing the sentiment distribution for the top 10 countries, ordered in descending order.
+    """
+    try:
+        # Read the Excel file into a DataFrame
+        df = pd.read_excel(file_path)
+
+        # Ensure the 'Text' column exists
+        if "Text" not in df.columns:
+            raise ValueError("The Excel file must contain a 'Text' column.")
+
+        # Extract country and sentiment data
+        country_data = []
+        for text in df["Text"].dropna():
+            countries = extract_country(text)
+            sentiment = get_sentiment(text)
+            for country in countries:
+                country_data.append([country, sentiment])
+
+        if not country_data:
+            print("No valid data found.")
+            return
+
+        # Create DataFrame for analysis
+        country_df = pd.DataFrame(country_data, columns=["Country", "Sentiment"])
+
+        # Count occurrences of each country
+        country_counts = country_df["Country"].value_counts()
+
+        # Select top 10 countries
+        top_10_countries = country_counts.head(10).index
+        top_10_df = country_df[country_df["Country"].isin(top_10_countries)]
+
+        # Pivot table for stacked bar chart
+        sentiment_counts = top_10_df.pivot_table(index="Country", columns="Sentiment", aggfunc="size", fill_value=0)
+
+        # Order by total occurrences in descending order
+        sentiment_counts = sentiment_counts.loc[sentiment_counts.sum(axis=1).sort_values(ascending=False).index]
+
+        # Create a plotly stacked bar chart
+        fig = px.bar(sentiment_counts, 
+                     x=sentiment_counts.index, 
+                     y=sentiment_counts.columns, 
+                     title="Sentiment Distribution in Top 10 Countries",
+                     labels={"value": "Occurrences", "Sentiment": "Sentiment", "Country": "Country"},
+                     color_discrete_map={
+                         'negative': 'lightcoral',
+                         'neutral': 'lightblue',
+                         'positive': 'lightgreen'
+                     })
+
+        # Show the figure
+        fig.update_layout(barmode='stack')
+        # fig.show()
+        return fig
+
+    except FileNotFoundError:
+        print(f"Error: The file '{file_path}' was not found.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+
+def process_excel_file_2(file_path):
+    """
+    Processes the Excel file to extract crime occurrences by month and sentiment.
+    Creates a stacked bar graph showing sentiment distribution per month.
+    """
+    try:
+        df = pd.read_excel(file_path)
+
+        if "Text" not in df.columns:
+            raise ValueError("The Excel file must contain a 'Text' column.")
+
+        # Extract month and sentiment
+        month_sentiment_data = []
+        for text in df["Text"].dropna():
+            month = extract_crime_month(text)
+            if month:  # Exclude "No Month"
+                sentiment = get_sentiment(text)
+                month_sentiment_data.append([month, sentiment])
+
+        if not month_sentiment_data:
+            print("No valid data found.")
+            return
+
+        # Create DataFrame for analysis
+        month_sentiment_df = pd.DataFrame(month_sentiment_data, columns=["Month", "Sentiment"])
+
+        # Ensure months appear in chronological order
+        month_order = ["January", "February", "March", "April", "May", "June",
+                       "July", "August", "September", "October", "November", "December"]
+        month_sentiment_df["Month"] = pd.Categorical(month_sentiment_df["Month"], categories=month_order, ordered=True)
+
+        # Count occurrences of each sentiment per month
+        sentiment_counts = month_sentiment_df.groupby(["Month", "Sentiment"]).size().unstack(fill_value=0)
+
+        # Create a Plotly stacked bar chart
+        fig = px.bar(sentiment_counts, 
+                     x=sentiment_counts.index, 
+                     y=sentiment_counts.columns, 
+                     title="Sentiment Distribution of News Articles by Month",
+                     labels={"value": "Number of Articles", "Sentiment": "Sentiment", "Month": "Month"},
+                     color_discrete_map={
+                         'negative': 'lightcoral',
+                         'neutral': 'lightblue',
+                         'positive': 'lightgreen'
+                     })
+
+        # Update layout for better presentation
+        fig.update_layout(barmode='stack',
+                          xaxis_title="Month",
+                          yaxis_title="Number of Articles",
+                          xaxis_tickangle=45)
+
+        return fig
+
+    except FileNotFoundError:
+        print(f"Error: The file '{file_path}' was not found.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+### PRITIKA END ###
+
+
+
+
+
 ### YEE TENG START ###
 def extract_entities(text, nlp_model):
     """Extract and categorize entities from the text."""
@@ -582,6 +596,10 @@ def main2(file_path, text_column="Text"):
 
 ### YEE TENG END ###
 
+
+
+
+
 # Streamlit app
 st.title("Visualisation Tool")
 st.write("Upload a dataset to generate visualisation charts.")
@@ -596,6 +614,12 @@ if uploaded_file:
     if "Text" not in data.columns:
         st.error("The file must contain a 'Text' column.")
     else:
+        ### HUAN YAO START ###
+        main1(uploaded_file, max_rows=10)
+        ### HUAN YAO END ###
+
+
+
         ### RIKA START ###
         # Exclusion list for unwanted terms
         exclude_list = ["Reuters", "CNA", "CNN", "The Straits Times", "COVID-19", "AI"]
@@ -606,7 +630,6 @@ if uploaded_file:
             # Plot the interactive bar chart of top organizations by sentiment
             fig = plot_top_10_orgs_with_sentiment(org_sentiment)
             st.plotly_chart(fig)  # Display the chart
-
     
         # Load the dataset
         data = load_data(uploaded_file)
@@ -645,10 +668,6 @@ if uploaded_file:
             st.plotly_chart(fig2)
         ### PRITIKA END ###
 
-
-        ### HUAN YAO START ###
-        main1(uploaded_file, max_rows=10)
-        ### HUAN YAO END ###
 
 
         ### YEE TENG START ###
